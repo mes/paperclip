@@ -2,6 +2,7 @@
 require 'uri'
 require 'paperclip/url_generator'
 require 'active_support/deprecation'
+require 'active_support/core_ext/string/inflections'
 
 module Paperclip
   # The Attachment class manages the files for a given attachment. It saves
@@ -32,6 +33,7 @@ module Paperclip
         :use_timestamp         => true,
         :whiny                 => Paperclip.options[:whiny] || Paperclip.options[:whiny_thumbnails],
         :validate_media_type   => true,
+        :adapter_options       => { hash_digest: Digest::MD5 },
         :check_validity_before_processing => true
       }
     end
@@ -49,7 +51,8 @@ module Paperclip
     # +url+ - a relative URL of the attachment. This is interpolated using +interpolator+
     # +path+ - where on the filesystem to store the attachment. This is interpolated using +interpolator+
     # +styles+ - a hash of options for processing the attachment. See +has_attached_file+ for the details
-    # +only_process+ - style args to be run through the post-processor. This defaults to the empty list
+    # +only_process+ - style args to be run through the post-processor. This defaults to the empty list (which is
+    #                  a special case that indicates all styles should be processed)
     # +default_url+ - a URL for the missing image
     # +default_style+ - the style to use when an argument is not specified e.g. #url, #path
     # +storage+ - the storage mechanism. Defaults to :filesystem
@@ -81,7 +84,7 @@ module Paperclip
       @errors                = {}
       @dirty                 = false
       @interpolator          = options[:interpolator]
-      @url_generator         = options[:url_generator].new(self, @options)
+      @url_generator         = options[:url_generator].new(self)
       @source_file_options   = options[:source_file_options]
       @whiny                 = options[:whiny]
 
@@ -95,7 +98,8 @@ module Paperclip
     # attachment:
     #   new_user.avatar = old_user.avatar
     def assign(uploaded_file)
-      @file = Paperclip.io_adapters.for(uploaded_file)
+      @file = Paperclip.io_adapters.for(uploaded_file,
+                                        @options[:adapter_options])
       ensure_required_accessors!
       ensure_required_validations!
 
@@ -236,6 +240,10 @@ module Paperclip
     # the instance's errors and returns false, cancelling the save.
     def save
       flush_deletes unless @options[:keep_old_files]
+      process = only_process
+      if process.any? && !process.include?(:original)
+        @queued_for_write.except!(:original)
+      end
       flush_writes
       @dirty = false
       true
@@ -322,7 +330,7 @@ module Paperclip
       OpenSSL::HMAC.hexdigest(OpenSSL::Digest.const_get(@options[:hash_digest]).new, @options[:hash_secret], data)
     end
 
-    # This method really shouldn't be called that often. It's expected use is
+    # This method really shouldn't be called that often. Its expected use is
     # in the paperclip:refresh rake task and that's it. It will regenerate all
     # thumbnails forcefully, by reobtaining the original file and going through
     # the post-process again.
@@ -347,7 +355,7 @@ module Paperclip
 
     # Returns true if a file has been assigned.
     def file?
-      !original_filename.blank?
+      original_filename.present?
     end
 
     alias :present? :file?
@@ -426,7 +434,7 @@ module Paperclip
     def assign_attributes
       @queued_for_write[:original] = @file
       assign_file_information
-      assign_fingerprint(@file.fingerprint)
+      assign_fingerprint { @file.fingerprint }
       assign_timestamps
     end
 
@@ -436,9 +444,9 @@ module Paperclip
       instance_write(:file_size, @file.size)
     end
 
-    def assign_fingerprint(fingerprint)
+    def assign_fingerprint
       if instance_respond_to?(:fingerprint)
-        instance_write(:fingerprint, fingerprint)
+        instance_write(:fingerprint, yield)
       end
     end
 
@@ -464,7 +472,7 @@ module Paperclip
 
     def reset_file_if_original_reprocessed
       instance_write(:file_size, @queued_for_write[:original].size)
-      assign_fingerprint(@queued_for_write[:original].fingerprint)
+      assign_fingerprint { @queued_for_write[:original].fingerprint }
       reset_updater
     end
 
@@ -500,7 +508,7 @@ module Paperclip
 
       instance.run_paperclip_callbacks(:post_process) do
         instance.run_paperclip_callbacks(:"#{name}_post_process") do
-          unless @options[:check_validity_before_processing] && instance.errors.any?
+          if !@options[:check_validity_before_processing] || !instance.errors.any?
             post_process_styles(*style_args)
           end
         end
@@ -518,15 +526,18 @@ module Paperclip
       begin
         raise RuntimeError.new("Style #{name} has no processors defined.") if style.processors.blank?
         intermediate_files = []
+        original = @queued_for_write[:original]
 
-        @queued_for_write[name] = style.processors.inject(@queued_for_write[:original]) do |file, processor|
+        @queued_for_write[name] = style.processors.
+          reduce(original) do |file, processor|
           file = Paperclip.processor(processor).make(file, style.processor_options, self)
-          intermediate_files << file
+          intermediate_files << file unless file == @queued_for_write[:original]
           file
         end
 
         unadapted_file = @queued_for_write[name]
-        @queued_for_write[name] = Paperclip.io_adapters.for(@queued_for_write[name])
+        @queued_for_write[name] = Paperclip.io_adapters.
+          for(@queued_for_write[name], @options[:adapter_options])
         unadapted_file.close if unadapted_file.respond_to?(:close)
         @queued_for_write[name]
       rescue Paperclip::Errors::NotIdentifiedByImageMagickError => e
@@ -586,7 +597,7 @@ module Paperclip
 
     # You can either specifiy :restricted_characters or you can define your own
     # :filename_cleaner object. This object needs to respond to #call and takes
-    # the filename that will be cleaned. It should return the cleaned filenme.
+    # the filename that will be cleaned. It should return the cleaned filename.
     def filename_cleaner
       @options[:filename_cleaner] || FilenameCleaner.new(@options[:restricted_characters])
     end

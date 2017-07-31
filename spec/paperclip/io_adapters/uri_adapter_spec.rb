@@ -1,13 +1,22 @@
 require 'spec_helper'
 
 describe Paperclip::UriAdapter do
+  let(:content_type) { "image/png" }
+  let(:meta) { {} }
+
+  before do
+    @open_return = StringIO.new("xxx")
+    @open_return.stubs(:content_type).returns(content_type)
+    @open_return.stubs(:meta).returns(meta)
+  end
+
   context "a new instance" do
     before do
-      @open_return = StringIO.new("xxx")
-      @open_return.stubs(:content_type).returns("image/png")
-      Paperclip::UriAdapter.any_instance.stubs(:download_content).returns(@open_return)
+      Paperclip::UriAdapter.any_instance.
+        stubs(:download_content).returns(@open_return)
+
       @uri = URI.parse("http://thoughtbot.com/images/thoughtbot-logo.png")
-      @subject = Paperclip.io_adapters.for(@uri)
+      @subject = Paperclip.io_adapters.for(@uri, hash_digest: Digest::MD5)
     end
 
     it "returns a file name" do
@@ -56,8 +65,12 @@ describe Paperclip::UriAdapter do
   end
 
   context "a directory index url" do
+    let(:content_type) { "text/html" }
+
     before do
-      Paperclip::UriAdapter.any_instance.stubs(:download_content).returns(StringIO.new("xxx"))
+      Paperclip::UriAdapter.any_instance.
+        stubs(:download_content).returns(@open_return)
+
       @uri = URI.parse("http://thoughtbot.com")
       @subject = Paperclip.io_adapters.for(@uri)
     end
@@ -73,7 +86,9 @@ describe Paperclip::UriAdapter do
 
   context "a url with query params" do
     before do
-      Paperclip::UriAdapter.any_instance.stubs(:download_content).returns(StringIO.new("xxx"))
+      Paperclip::UriAdapter.any_instance.
+        stubs(:download_content).returns(@open_return)
+
       @uri = URI.parse("https://github.com/thoughtbot/paperclip?file=test")
       @subject = Paperclip.io_adapters.for(@uri)
     end
@@ -83,9 +98,32 @@ describe Paperclip::UriAdapter do
     end
   end
 
+  context "a url with content disposition headers" do
+    let(:file_name) { "test_document.pdf" }
+    let(:meta) do
+      {
+        "content-disposition" => "attachment; filename=\"#{file_name}\";",
+      }
+    end
+
+    before do
+      Paperclip::UriAdapter.any_instance.
+        stubs(:download_content).returns(@open_return)
+
+      @uri = URI.parse("https://github.com/thoughtbot/paperclip?file=test")
+      @subject = Paperclip.io_adapters.for(@uri)
+    end
+
+    it "returns a file name" do
+      assert_equal file_name, @subject.original_filename
+    end
+  end
+
   context "a url with restricted characters in the filename" do
     before do
-      Paperclip::UriAdapter.any_instance.stubs(:download_content).returns(StringIO.new("xxx"))
+      Paperclip::UriAdapter.any_instance.
+        stubs(:download_content).returns(@open_return)
+
       @uri = URI.parse("https://github.com/thoughtbot/paper:clip.jpg")
       @subject = Paperclip.io_adapters.for(@uri)
     end
@@ -99,4 +137,31 @@ describe Paperclip::UriAdapter do
     end
   end
 
+  describe "#download_content" do
+    before do
+      Paperclip::UriAdapter.any_instance.stubs(:open).returns(@open_return)
+      @uri = URI.parse("https://github.com/thoughtbot/paper:clip.jpg")
+      @subject = Paperclip.io_adapters.for(@uri)
+    end
+
+    after do
+      @subject.send(:download_content)
+    end
+
+    context "with default read_timeout" do
+      it "calls open without options" do
+        @subject.expects(:open).with(@uri, {}).at_least_once
+      end
+    end
+
+    context "with custom read_timeout" do
+      before do
+        Paperclip.options[:read_timeout] = 120
+      end
+
+      it "calls open with read_timeout option" do
+        @subject.expects(:open).with(@uri, read_timeout: 120).at_least_once
+      end
+    end
+  end
 end

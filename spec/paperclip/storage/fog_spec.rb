@@ -183,6 +183,13 @@ describe Paperclip::Storage::Fog do
         tempfile.close
       end
 
+      it 'is able to be handled when missing while copying to a local file' do
+        tempfile = Tempfile.new("known_location")
+        tempfile.binmode
+        assert_equal false, @dummy.avatar.copy_to_local_file(:original, tempfile.path)
+        tempfile.close
+      end
+
       it "passes the content type to the Fog::Storage::AWS::Files instance" do
         Fog::Storage::AWS::Files.any_instance.expects(:create).with do |hash|
           hash[:content_type]
@@ -262,6 +269,22 @@ describe Paperclip::Storage::Fog do
 
         it 'sets the @fog_public instance variable to false' do
           assert_equal false, @dummy.avatar.instance_variable_get('@options')[:fog_public]
+          assert_equal false, @dummy.avatar.fog_public
+        end
+      end
+
+      context "with fog_public as a proc" do
+        let(:proc) { ->(attachment) { !attachment } }
+
+        before do
+          rebuild_model(@options.merge(fog_public: proc))
+          @dummy = Dummy.new
+          @dummy.avatar = StringIO.new(".")
+          @dummy.save
+        end
+
+        it "sets the @fog_public instance variable to false" do
+          assert_equal proc, @dummy.avatar.instance_variable_get("@options")[:fog_public]
           assert_equal false, @dummy.avatar.fog_public
         end
       end
@@ -418,6 +441,9 @@ describe Paperclip::Storage::Fog do
           assert @connection.directories.get(@dynamic_fog_directory).inspect
         end
 
+        it "provides an url using dynamic bucket name" do
+          assert_match(/^https:\/\/dynamicpaperclip.s3.amazonaws.com\/avatars\/5k.png\?\d*$/, @dummy.avatar.url)
+        end
       end
 
       context "with a proc for the fog_host evaluating a model method" do
@@ -482,6 +508,25 @@ describe Paperclip::Storage::Fog do
 
         it "provides a public url" do
           assert_equal @dummy.avatar.fog_credentials, @dynamic_fog_credentials
+        end
+      end
+
+      context "with custom fog_options" do
+        before do
+          rebuild_model(
+            @options.merge(fog_options: { multipart_chunk_size: 104857600 }),
+          )
+          @dummy = Dummy.new
+          @dummy.avatar = @file
+        end
+
+        it "applies the options to the fog #create call" do
+          files = stub
+          @dummy.avatar.stubs(:directory).returns stub(files: files)
+          files.expects(:create).with(
+            has_entries(multipart_chunk_size: 104857600),
+          )
+          @dummy.save
         end
       end
     end

@@ -1,3 +1,74 @@
+master:
+
+* Improvement: Added `:use_accelerate_endpoint` option when using S3 to enable
+  [Amazon S3 Transfer Acceleration](http://docs.aws.amazon.com/AmazonS3/latest/dev/transfer-acceleration.html)
+* Improvement: make the fingerprint digest configurable per attachment. The
+  default remains MD5 but this will change in a future version because it is
+  not considered secure anymore against intentional file corruption. For more
+  info, see https://en.wikipedia.org/wiki/MD5#Security
+
+  You can change the digest used for an attachment by adding the
+  `:adapter_options` parameter to the `has_attached_file` options like this:
+  `has_attached_file :avatar, adapter_options: { hash_digest: Digest::SHA256 }`
+
+  Use the rake task to regenerate fingerprints with the new digest for a given
+  class. Note that this does **not** check the file integrity using the old
+  fingerprint. Run the following command to regenerate fingerprints for all
+  User attachments:
+  `CLASS=User rake paperclip:refresh:fingerprints`
+  You can optionally limit the attachment that will be processed, e.g:
+  `CLASS=User ATTACHMENT=avatar rake paperclip:refresh:fingerprints`
+
+5.1.0 (2016-08-19):
+
+* Add default `content_type_detector` to `UploadedFileAdapter` (#2270)
+* Default S3 protocol to empty string (#2038)
+* Don't write original file if it wasn't reprocessed (#1993)
+* Disallow trailing newlines in regular expressions (#2266)
+* Support for readbyte in Paperclip attachments (#2034)
+* (port from 4.3) Uri io adapter uses the content-disposition filename (#2250)
+* General refactors and documentation improvements
+
+5.0.0 (2016-07-01):
+
+* Improvement: Add `read_timeout` configuration for URI Adapter download_content method.
+* README adjustments for Ruby beginners (add links, elucidate model in Quick Start)
+* Bugfix: Now it's possible to save images from URLs with special characters [#1932]
+* Bugfix: Return false when file to copy is not present in cloud storage [#2173]
+* Automatically close file while checking mime type [#2016]
+* Add `read_timeout` option to `UriAdapter#download_content` method [#2232]
+* Fix a nil error in content type validation matcher [#1910]
+* Documentation improvements
+
+5.0.0.beta2 (2016-04-01):
+
+* Bugfix: Dynamic fog directory option is now respected
+* Bugfix: Fixes cocaine duplicated paths [#2169]
+* Removal of dead code (older versions of Rails and AWS SDK)
+* README adjustments
+
+5.0.0.beta1 (2016-03-13):
+
+* Bug Fix: megabytes of mime-types info in logs when a spoofed media type is detected.
+* Drop support to end-of-life'd ruby 2.0.
+* Drop support for end-of-life'd Rails 3.2 and 4.1
+* Drop support for AWS v1
+* Remove tests for JRuby and Rubinius from Travis CI (they were failing)
+* Improvement: Add `fog_options` configuration to send options to fog when
+  storing files.
+* Extracted repository for locales only:  https://github.com/thoughtbot/paperclip-i18n
+* Bugfix: Original file could be unlinked during `post_process_style`, producing failures
+* Bugfix for image magick scaling images up
+* Memory consumption improvements
+* `url` on a unpersisted record returns `default_url` rather than `nil`
+* Improvement: aws-sdk v2 support
+  https://github.com/thoughtbot/paperclip/pull/1903
+
+  If your Gemfile contains aws-sdk (>= 2.0.0) and aws-sdk-v1, paperclip will use
+  aws-sdk v2. With aws-sdk v2, S3 storage requires you to set the s3_region.
+  s3_region may be nested in s3_credentials, and (if not nested in
+  s3_credentials) it may be a Proc.
+
 4.3.5 (2/8/2016):
 * Bug Fix: Remove deprecation warnings for v5.0 for now. Will re-add once the version has landed.
 
@@ -19,9 +90,13 @@
 * Fix GeometryParser regex for usage of '@>' flag
 * `url` on a unpersisted record returns default_url
 * spec deprecation warnings and failures
-* README adjustments
 
-4.3.0 (6/18/2015):
+4.3
+
+See patch versions in v4.3 NEWS:
+https://github.com/thoughtbot/paperclip/blob/v4.3/NEWS
+
+4.3.0 (2015-06-18):
 
 * Improvement: Update aws-sdk and cucumber gem versions.
 * Improvement: Add `length` alias for `size` method in AbstractAdapter.
@@ -34,7 +109,7 @@
 * Ruby Versioning: Drop support for 1.9.3 (EOL'ed)
 * Rails Versioning: Drop support for 4.0.0 (EOL'ed)
 
-4.2.4:
+4.2.4 (2015-06-05):
 
 * Rollback backwards incompatible change, allowing paperclip to run on
   Ruby >= 1.9.2.
